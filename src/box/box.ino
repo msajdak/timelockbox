@@ -1,14 +1,4 @@
-/*
-  DS3231_test.pde
-  Eric Ayars
-  4/11
 
-  Test/demo of read routines for a DS3231 RTC.
-
-  Turn on the serial monitor after loading this to check if things are
-  working as they should.
-
-*/
 #include <Button.h>
 #include <stdio.h>
 #include <DS3231.h>
@@ -18,7 +8,7 @@
 
 #define MAX_OUT_CHARS 16
 
-LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); // Ustawienie adresu ukladu na 0x27
+LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); // Ustawienie adresu ukladu na 0x27
 
 DS3231 Clock;
 
@@ -108,8 +98,7 @@ byte bunny4[8] = {
   0b11100
 };
 
-const char BUNNY1[] PROGMEM = {  "\x03\x04"};
-const char BUNNY2[] PROGMEM = {  "\x05\x06"};
+
 const char DDMMYYYYHHMM[] PROGMEM = {  "%02d.%02d.%02d %02d%c%02d %c"};
 
 const char SETUP_TIME[] PROGMEM = {  " Setup Time"};
@@ -124,6 +113,13 @@ const char MINUTE[] PROGMEM = "minute";
 const char SAVED[] PROGMEM = "Saved";
 const char CANCELED[] PROGMEM = "Canceled";
 
+const char RESSETING[] PROGMEM = "Reseting";
+const char OPENING[] PROGMEM = "OPENING";
+const char LOCK[] PROGMEM = "LOCK";
+
+const char BUNNY1[] PROGMEM = "\x03\x04";
+const char BUNNY2[] PROGMEM = "\x05\x06";
+
 uint8_t openTime[6] = {};
 uint8_t currentTime[6] = {};
 
@@ -135,14 +131,17 @@ Button b4 = Button(5, BUTTON_PULLUP_INTERNAL);
 Button b5 = Button(6, BUTTON_PULLUP_INTERNAL);
 Button b6 = Button(7, BUTTON_PULLUP_INTERNAL);
 
+Button bReset = Button(10, BUTTON_PULLUP_INTERNAL);
+
+int magnetPin=17;
+
 bool isOpen();
 void readOpenTime();
 bool setTime(uint8_t time[]);
 
 
 void setup() {
-  //  Serial.begin(9600);
-
+  
   // Start the I2C interface
   Wire.begin();
 
@@ -161,7 +160,8 @@ void setup() {
   lcd.createChar(6, bunny4);
   lcd.createChar(7, padlockOpen);
 
-
+ pinMode(magnetPin, OUTPUT);
+ digitalWrite(magnetPin, LOW);  
   readCurrentTime();
   readOpenTime();
 }
@@ -175,14 +175,27 @@ void print(int c, int r,
 }
 
 
+void printBunny(int col) {
+ 
+  char buffer[MAX_OUT_CHARS + 1];
 
-void printInfo( const char * toPrint) {
+   lcd.setCursor(col, 0);
+  sprintf_P(buffer, BUNNY1);
+  lcd.print(buffer);
+
+     lcd.setCursor(col, 1);
+  sprintf_P(buffer, BUNNY2);
+  lcd.print(buffer);
+}
+void printInfo( const char * toPrint,boolean pause) {
   lcd.clear();
   char buffer[MAX_OUT_CHARS + 1];
   lcd.setCursor(0, 0);
   sprintf_P(buffer, toPrint);
   lcd.print(buffer);
-  delay(1000);
+  if (pause){
+    delay(500);
+  }
 }
 
 void printTime(int c, char icon, uint8_t time[]) {
@@ -202,15 +215,24 @@ void printOpenTime() {
 }
 
 unsigned int getITime(uint8_t time[]) {
-  return (((time[0] * 12 + time[1]) * 31 + time[2]) * 24 + time[3]) * 60 + time[4];
+  int ret=time[0] * 12;
+  ret=(ret+ time[1])*31;
+  ret=(ret+ time[2])*24;
+  ret=(ret+ time[3])*60;
+   ret=ret+ time[4];
+  return ret;
 }
 
+bool sessionOpen=false;
 bool isOpen() {
+  if (sessionOpen){
+    return true;
+  }
   if (currentTime[0] <= 1) {
     return true;
   }
-
-  return getITime(currentTime) >= getITime(openTime);
+  sessionOpen=getITime(currentTime) >= getITime(openTime);
+  return sessionOpen;
 
 }
 
@@ -233,7 +255,7 @@ void readCurrentTime() {
 #define decrease(X, minI, maxI) X = (X <= minI) ? maxI : X-1
 
 void showMenu() {
-  uint8_t currentPos = 0;
+  uint8_t currentPos = 1;
   bool first = true;
   lcd.clear();
   while (1) {
@@ -251,20 +273,21 @@ void showMenu() {
       if (currentPos == 0) {
         if (setTime(currentTime)) {
           setCurrentTime();
-          printInfo(SAVED);
+          printInfo(SAVED,1);
         } else {
-          printInfo(CANCELED);
+          printInfo(CANCELED,1);
         }
       } else {
         if (setTime(openTime)) {
           saveOpenTime();
-          printInfo(SAVED);
+          printInfo(SAVED,1);
         } else {
-          printInfo(CANCELED);
+          printInfo(CANCELED,1);
+         
         }
 
       }
-
+      
       return;
     }
     if (b6.isPressed() && !first ) {
@@ -274,7 +297,7 @@ void showMenu() {
 
 
     if (b1.isPressed() || b2.isPressed() || b3.isPressed() || b4.isPressed() || b5.isPressed() || b6.isPressed() || first) {
-
+ 
       lcd.setCursor(0, 0);
       print(0, 0, SETUP_TIME);
       lcd.setCursor(1, 0);
@@ -289,7 +312,7 @@ void showMenu() {
         delay(1000);
         first = false;
       } else {
-        delay(200);
+        delay(400);
       }
 
     }
@@ -305,7 +328,7 @@ bool setTime(uint8_t time[]) {
   const uint8_t minV[] = {    0,    1,    1,    0,    0  };
   const uint8_t arrowPos[] = {    6,    3,    0,    9,    12  };
 
-  uint8_t currentPos = 0;
+  uint8_t currentPos = 2;
   delay(1000);
   bool first = true;
   while (1) {
@@ -397,10 +420,6 @@ void readOpenTime() {
     EEPROM.get(k * 4,  openTime[k] );
     if (openTime[k] == 255) {
       openTime[k] = currentTime[k];
-      if (k==4){
-         openTime[k]=increase(openTime[k],0,59);
-      }
-      EEPROM.put(k * 4, openTime[k] );
     }
   }
   openTime[5] = 1;
@@ -414,18 +433,84 @@ void saveOpenTime() {
     EEPROM.put(k * 4, openTime[k] );
   }
 
-
-
 }
 
-void loop() {
-  readCurrentTime();
-  printCurrentTime();
-  printOpenTime();
 
-  if (b6.isPressed()) {
-    showMenu();
+void resetOpenTime() {
+  
+  for (int k = 0; k < 4; k++)
+  {
+   openTime[k]=currentTime[k];
   }
-  delay(500);
+   openTime[4]=currentTime[4]+1;
+    printInfo(RESSETING,1);
+}
+
+uint16_t loopI=0;
+void loop() {
+
+  if (loopI%20==0){
+    readCurrentTime();
+    printCurrentTime();
+    printOpenTime();
+  }
+
+
+if (bReset.isPressed()){
+  resetOpenTime();
+ 
+}
+
+if (isOpen()){
+  if (b6.isPressed()) {
+    
+    showMenu();
+    lcd.clear();
+     printBunny(2);
+     printBunny(6);
+    printBunny(10);
+    printBunny(14);
+    delay(1000);
+     loopI=0;
+  }else if (b1.isPressed() || b2.isPressed() || b3.isPressed() || b4.isPressed() || b5.isPressed()){
+    digitalWrite(magnetPin, HIGH);  
+    printInfo(OPENING,0);
+    printBunny(14);
+    delay(1000);
+    digitalWrite(magnetPin, LOW);  
+    loopI=0;
+  }
+}else if (b1.isPressed() || b2.isPressed() || b3.isPressed() || b4.isPressed() || b5.isPressed() || b6.isPressed()){
+   printInfo(LOCK,0);
+   printBunny(14);
+   loopI=0;
+
+   delay(1000);
+}
+
+
+  if (loopI==3000){//30s
+    lcd.setBacklight(BACKLIGHT_OFF);
+     lcd.clear();
+       printBunny(0);
+            printBunny(3);
+            printBunny(6);
+            printBunny(9);
+            printBunny(12);
+            
+    while(1){
+         if (b1.isPressed() || b2.isPressed() || b3.isPressed() || b4.isPressed() || b5.isPressed() || b6.isPressed()|| bReset.isPressed()){
+            lcd.setBacklight(BACKLIGHT_ON);
+         
+            loopI=0;
+            break;
+         }
+         delay(1000);
+    }
+  }
+
+  loopI++;
+  
+  delay(10);
 
 }
